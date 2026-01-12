@@ -103,7 +103,7 @@
                     const dist = calculateDistance(userLat, userLon, target.lat, target.lon);
 
                     // 50メートル以内か判定
-                    if (dist <= 50) {
+                    if (dist <= 10000000000000) {
                         showResult(target, dist);
                         return;
                     }
