@@ -3,140 +3,174 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AIスポット認識システム</title>
+    <title>AIスポット判定システム</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; padding: 20px; background: #f4f4f4; }
-        #webcam-container { margin: 20px auto; width: 300px; height: 300px; border: 2px solid #ccc; border-radius: 10px; overflow: hidden; background: #000; }
-        .info-card { display: none; margin-top: 20px; padding: 15px; background: white; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        button { padding: 15px 30px; font-size: 18px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 5px; }
-        #status { margin: 10px; color: #666; }
+        body { font-family: sans-serif; text-align: center; padding: 20px; background: #f4f4f4; color: #333; }
+        #webcam-container { margin: 20px auto; width: 300px; height: 300px; border: 5px solid #fff; border-radius: 15px; overflow: hidden; background: #000; box-shadow: 0 4px 10px rgba(0,0,0,0.2); position: relative; }
+        #webcam-container canvas { width: 100% !important; height: auto !important; }
+        
+        .controls { margin-top: 20px; display: flex; justify-content: center; gap: 10px; flex-direction: column; align-items: center; }
+        button { padding: 15px 30px; font-size: 18px; font-weight: bold; cursor: pointer; border: none; border-radius: 50px; transition: 0.3s; width: 80%; max-width: 300px; }
+        
+        .btn-start { background: #007bff; color: white; }
+        .btn-capture { background: #e91e63; color: white; display: none; }
+        .btn-reset { background: #6c757d; color: white; display: none; }
+        
+        .info-card { display: none; margin: 20px auto; padding: 20px; background: white; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-width: 400px; }
+        #status { margin: 15px; font-size: 14px; color: #666; min-height: 1.5em; }
+        .result-label { font-size: 24px; font-weight: bold; color: #e91e63; margin-bottom: 10px; }
     </style>
 </head>
 <body>
 
-    <h1>AIスポット認識</h1>
+    <h1>AIスポット判定</h1>
+    
     <div id="status">モデルを読み込んでいます...</div>
     
-    <button type="button" onclick="startSystem()">カメラを起動してチェック</button>
-
     <div id="webcam-container"></div>
+
+    <div class="controls">
+        <button id="start-btn" class="btn-start" onclick="initSystem()">システムを起動</button>
+        <button id="capture-btn" class="btn-capture" onclick="captureAndPredict()">📸 写真を撮って判定</button>
+        <button id="reset-btn" class="btn-reset" onclick="resetSystem()">もう一度撮る</button>
+    </div>
     
     <div id="info-area" class="info-card">
-        <h2 id="info-title"></h2>
-        <p id="info-desc"></p>
-        <p id="distance-info" style="font-size: 0.8em; color: green;"></p>
+        <div id="result-label" class="result-label"></div>
+        <div id="info-desc"></div>
+        <p id="distance-info" style="font-size: 0.9em; color: #28a745; margin-top: 10px;"></p>
     </div>
 
     <script>
-        // --- 設定エリア: ターゲットの座標をここに登録してください ---
         const TARGETS = {
-            "Nintendo": { lat: 35.6586, lon: 139.7454, title: "任天堂スポット！", desc: "ここに特別な任天堂情報を表示します。" },
-            "セブンイレブン": { lat: 35.6812, lon: 139.7671, title: "セブンイレブン確認！", desc: "現在地がセブンイレブン付近であることを確認しました。" }
+            "Nintendo": { lat: 35.6586, lon: 139.7454, title: "任天堂スポット", desc: "ここに特別な任天堂情報を表示します。" },
+            "セブンイレブン": { lat: 35.6812, lon: 139.7671, title: "セブンイレブン", desc: "セブンイレブン付近であることを確認しました。" }
         };
 
-        let model, webcam, labelContainer, maxPredictions;
+        let model, webcam, maxPredictions;
+        let isPaused = false;
+        let userLat, userLon;
 
-        // モデルの読み込み
+        // モデルの初期読み込み
         async function loadModel() {
-            const URL = "./"; // model.jsonなどがある場所
-            const modelURL = URL + "model.json";
-            const metadataURL = URL + "metadata.json";
-
-            model = await tmImage.load(modelURL, metadataURL);
-            maxPredictions = model.getTotalClasses();
-            document.getElementById("status").innerText = "準備完了！ターゲットに近づいてカメラを向けてください。";
+            try {
+                const URL = "./";
+                model = await tmImage.load(URL + "model.json", URL + "metadata.json");
+                maxPredictions = model.getTotalClasses();
+                document.getElementById("status").innerText = "準備完了！起動してください。";
+            } catch (e) {
+                document.getElementById("status").innerText = "エラー: モデルが見つかりません。";
+            }
         }
 
-        // 2地点間の距離をメートルで計算（ハバサイン公式）
+        // システム起動（カメラとGPS）
+        async function initSystem() {
+            document.getElementById("status").innerText = "位置情報を取得中...";
+            
+            navigator.geolocation.getCurrentPosition(async (pos) => {
+                userLat = pos.coords.latitude;
+                userLon = pos.coords.longitude;
+
+                // カメラ設定
+                webcam = new tmImage.Webcam(300, 300, false); // facingModeはsetupで指定
+                await webcam.setup({ facingMode: "environment" }); 
+                await webcam.play();
+                
+                document.getElementById("webcam-container").innerHTML = "";
+                document.getElementById("webcam-container").appendChild(webcam.canvas);
+                
+                document.getElementById("start-btn").style.display = "none";
+                document.getElementById("capture-btn").style.display = "block";
+                document.getElementById("status").innerText = "カメラに向けてボタンを押してください。";
+                
+                isPaused = false;
+                window.requestAnimationFrame(loop);
+            }, (err) => {
+                alert("位置情報の許可が必要です");
+                document.getElementById("status").innerText = "位置情報エラー。";
+            });
+        }
+
+        // ループ（映像の更新のみ）
+        async function loop() {
+            if (!isPaused) {
+                webcam.update();
+                window.requestAnimationFrame(loop);
+            }
+        }
+
+        // 【今回のメイン】写真を撮って判定
+        async function captureAndPredict() {
+            isPaused = true; // ループを止める（フリーズ）
+            document.getElementById("status").innerText = "判定中...";
+            document.getElementById("capture-btn").style.display = "none";
+
+            // AI判定
+            const prediction = await model.predict(webcam.canvas);
+            
+            // 一番確率が高い結果を取得
+            let topPrediction = prediction.reduce((prev, current) => 
+                (prev.probability > current.probability) ? prev : current
+            );
+
+            // 背景クラス、または確率が低い場合
+            if (topPrediction.className === "背景" || topPrediction.probability < 0.8) {
+                document.getElementById("status").innerText = "何も見つかりませんでした。";
+                document.getElementById("reset-btn").style.display = "block";
+                return;
+            }
+
+            const className = topPrediction.className;
+            const target = TARGETS[className];
+
+            if (target) {
+                const dist = calculateDistance(userLat, userLon, target.lat, target.lon);
+                
+                if (dist <= 50) {
+                    showResult(target, dist);
+                    document.getElementById("status").innerText = "判定成功！";
+                } else {
+                    document.getElementById("status").innerText = "対象は合っていますが、場所が遠すぎます。";
+                    document.getElementById("distance-info").innerText = `(現在地から約 ${Math.round(dist)}m)`;
+                    document.getElementById("info-area").style.display = "block";
+                    document.getElementById("result-label").innerText = className;
+                    document.getElementById("info-desc").innerText = "もっと近くで撮影してください。";
+                }
+            }
+            
+            document.getElementById("reset-btn").style.display = "block";
+        }
+
+        // リセット処理
+        function resetSystem() {
+            isPaused = false;
+            document.getElementById("info-area").style.display = "none";
+            document.getElementById("reset-btn").style.display = "none";
+            document.getElementById("capture-btn").style.display = "block";
+            document.getElementById("status").innerText = "スキャンを再開しました。";
+            window.requestAnimationFrame(loop);
+        }
+
+        function showResult(target, dist) {
+            const area = document.getElementById("info-area");
+            area.style.display = "block";
+            document.getElementById("result-label").innerText = target.title;
+            document.getElementById("info-desc").innerText = target.desc;
+            document.getElementById("distance-info").innerText = `✅ 位置確認済み (距離: ${Math.round(dist)}m)`;
+        }
+
         function calculateDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371000; 
+            const R = 6371000;
             const dLat = (lat2 - lat1) * Math.PI / 180;
             const dLon = (lon2 - lon1) * Math.PI / 180;
             const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
                       Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
                       Math.sin(dLon / 2) * Math.sin(dLon / 2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            return R * c;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         }
 
-        async function startSystem() {
-            document.getElementById("status").innerText = "位置情報を確認中...";
-            
-            // 1. 位置情報の取得
-            navigator.geolocation.getCurrentPosition(async (pos) => {
-                const userLat = pos.coords.latitude;
-                const userLon = pos.coords.longitude;
-
-                // 2. カメラのセットアップ
-                const flip = true; 
-                webcam = new tmImage.Webcam(300, 300, flip);
-                await webcam.setup({ facingMode: "environment" }); // 外カメラ
-                await webcam.play();
-                document.getElementById("webcam-container").appendChild(webcam.canvas);
-                document.getElementById("status").innerText = "スキャン中...";
-
-                // ループ処理
-                window.requestAnimationFrame(loop);
-                
-                async function loop() {
-                    webcam.update(); 
-                    await predict(userLat, userLon);
-                    window.requestAnimationFrame(loop);
-                }
-            }, (err) => {
-                alert("位置情報の許可が必要です");
-            });
-        }
-
-       async function predict(userLat, userLon) {
-    const prediction = await model.predict(webcam.canvas);
-    
-    // 1. 一番確率が高い結果を見つける
-    let topPrediction = prediction.reduce((prev, current) => 
-        (prev.probability > current.probability) ? prev : current
-    );
-
-    const infoArea = document.getElementById("info-area");
-    const statusText = document.getElementById("status");
-
-    // 2. 判定の条件分岐
-    // 条件A: 一番確率が高いのが「背景」クラスだった場合
-    // 条件B: 一番高い確率でも 0.8 (80%) 未満だった場合
-    if (topPrediction.className === "背景" || topPrediction.probability < 0.8) {
-        infoArea.style.display = "none"; // 情報を隠す
-        statusText.innerText = "スキャン中...（対象を探しています）";
-        return;
-    }
-
-    // 3. 「Nintendo」か「セブンイレブン」が 80% 以上の確率で、かつ場所が近い場合
-    const className = topPrediction.className;
-    const target = TARGETS[className];
-
-    if (target) {
-        const dist = calculateDistance(userLat, userLon, target.lat, target.lon);
-
-        if (dist <= 50) {
-            showResult(target, dist);
-            statusText.innerText = "ターゲットを認識しました！";
-        } else {
-            // 対象は合っているが、場所が遠い場合
-            infoArea.style.display = "none";
-            statusText.innerText = `${className}が見えますが、場所が${Math.round(dist)}m離れています。`;
-        }
-    }
-}
-
-        function showResult(target, dist) {
-            const area = document.getElementById("info-area");
-            area.style.display = "block";
-            document.getElementById("info-title").innerText = target.title;
-            document.getElementById("info-desc").innerText = target.desc;
-            document.getElementById("distance-info").innerText = `(現在地からの距離: ${Math.round(dist)}m)`;
-        }
-
-        // 起動時にモデルをロード
         loadModel();
     </script>
 </body>
