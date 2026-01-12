@@ -90,26 +90,43 @@
             });
         }
 
-        async function predict(userLat, userLon) {
-            const prediction = await model.predict(webcam.canvas);
-            
-            for (let i = 0; i < maxPredictions; i++) {
-                const className = prediction[i].className;
-                const probability = prediction[i].probability;
+       async function predict(userLat, userLon) {
+    const prediction = await model.predict(webcam.canvas);
+    
+    // 1. 一番確率が高い結果を見つける
+    let topPrediction = prediction.reduce((prev, current) => 
+        (prev.probability > current.probability) ? prev : current
+    );
 
-                // AIが80%以上の確率で認識し、かつ設定したターゲットに存在する場合
-                if (probability > 0.8 && TARGETS[className]) {
-                    const target = TARGETS[className];
-                    const dist = calculateDistance(userLat, userLon, target.lat, target.lon);
+    const infoArea = document.getElementById("info-area");
+    const statusText = document.getElementById("status");
 
-                    // 50メートル以内か判定
-                    if (dist <= 10000000000000) {
-                        showResult(target, dist);
-                        return;
-                    }
-                }
-            }
+    // 2. 判定の条件分岐
+    // 条件A: 一番確率が高いのが「背景」クラスだった場合
+    // 条件B: 一番高い確率でも 0.8 (80%) 未満だった場合
+    if (topPrediction.className === "背景" || topPrediction.probability < 0.8) {
+        infoArea.style.display = "none"; // 情報を隠す
+        statusText.innerText = "スキャン中...（対象を探しています）";
+        return;
+    }
+
+    // 3. 「Nintendo」か「セブンイレブン」が 80% 以上の確率で、かつ場所が近い場合
+    const className = topPrediction.className;
+    const target = TARGETS[className];
+
+    if (target) {
+        const dist = calculateDistance(userLat, userLon, target.lat, target.lon);
+
+        if (dist <= 50) {
+            showResult(target, dist);
+            statusText.innerText = "ターゲットを認識しました！";
+        } else {
+            // 対象は合っているが、場所が遠い場合
+            infoArea.style.display = "none";
+            statusText.innerText = `${className}が見えますが、場所が${Math.round(dist)}m離れています。`;
         }
+    }
+}
 
         function showResult(target, dist) {
             const area = document.getElementById("info-area");
