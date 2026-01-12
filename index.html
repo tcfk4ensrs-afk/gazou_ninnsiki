@@ -3,104 +3,252 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AIスポット判定システム</title>
+    <title>AI Spot Explorer</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; padding: 20px; background: #f4f4f4; color: #333; }
-        #webcam-container { margin: 20px auto; width: 300px; height: 300px; border: 5px solid #fff; border-radius: 15px; overflow: hidden; background: #000; box-shadow: 0 4px 10px rgba(0,0,0,0.2); position: relative; }
-        #webcam-container canvas { width: 100% !important; height: auto !important; }
-        
-        .controls { margin-top: 20px; display: flex; justify-content: center; gap: 10px; flex-direction: column; align-items: center; }
-        button { padding: 15px 30px; font-size: 18px; font-weight: bold; cursor: pointer; border: none; border-radius: 50px; transition: 0.3s; width: 80%; max-width: 300px; }
-        
-        .btn-start { background: #007bff; color: white; }
-        .btn-capture { background: #e91e63; color: white; display: none; }
-        .btn-reset { background: #6c757d; color: white; display: none; }
-        
-        .info-card { display: none; margin: 20px auto; padding: 20px; background: white; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-width: 400px; }
-        #status { margin: 15px; font-size: 14px; color: #666; min-height: 1.5em; }
-        .result-label { font-size: 24px; font-weight: bold; color: #e91e63; margin-bottom: 10px; }
+        :root {
+            --primary: #00f2fe;
+            --accent: #4facfe;
+            --success: #00ff88;
+            --danger: #ff4b2b;
+            --bg: #0f172a;
+            --glass: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            margin: 0;
+            background: var(--bg);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        header {
+            padding: 30px 0 10px;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            background: linear-gradient(to right, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 0;
+        }
+
+        #status {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-top: 5px;
+        }
+
+        /* カメラコンテナ */
+        #webcam-outer {
+            position: relative;
+            margin: 20px auto;
+            width: 320px;
+            height: 320px;
+            border-radius: 30px;
+            padding: 10px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            box-shadow: 0 0 30px rgba(79, 172, 254, 0.4);
+        }
+
+        #webcam-container {
+            width: 100%;
+            height: 100%;
+            border-radius: 20px;
+            overflow: hidden;
+            background: #000;
+            position: relative;
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: cover;
+        }
+
+        /* スキャンアニメーション */
+        .scan-line {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: var(--primary);
+            box-shadow: 0 0 15px var(--primary);
+            z-index: 10;
+            animation: scan 2s linear infinite;
+            display: none;
+        }
+
+        @keyframes scan {
+            0% { top: 0; }
+            100% { top: 100%; }
+        }
+
+        /* コントロールボタン */
+        .controls {
+            position: fixed;
+            bottom: 40px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+            z-index: 100;
+        }
+
+        button {
+            border: none;
+            border-radius: 50px;
+            padding: 16px 40px;
+            font-size: 1rem;
+            font-weight: bold;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+            width: 80%;
+            max-width: 300px;
+        }
+
+        .btn-start { background: linear-gradient(to right, #6a11cb, #2575fc); }
+        .btn-capture { background: linear-gradient(to right, #ff416c, #ff4b2b); }
+        .btn-reset { background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(10px); }
+
+        button:active { transform: scale(0.95); }
+
+        /* 結果カード（グラスモーフィズム） */
+        .info-card {
+            display: none;
+            width: 85%;
+            max-width: 400px;
+            margin: 10px auto 120px;
+            padding: 25px;
+            background: var(--glass);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 25px;
+            animation: slideUp 0.5s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .result-label {
+            font-size: 1.4rem;
+            font-weight: bold;
+            color: var(--primary);
+            margin-bottom: 10px;
+        }
+
+        #result-image {
+            width: 100%;
+            border-radius: 15px;
+            margin: 15px 0;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        #distance-info {
+            display: inline-block;
+            padding: 5px 12px;
+            background: rgba(0, 255, 136, 0.2);
+            color: var(--success);
+            border-radius: 50px;
+            font-size: 0.8rem;
+        }
     </style>
 </head>
 <body>
 
-    <h1>AIスポット判定</h1>
+    <header>
+        <h1>Spot Explorer</h1>
+        <div id="status">AIシステム準備中...</div>
+    </header>
     
-    <div id="status">モデルを読み込んでいます...</div>
-    
-    <div id="webcam-container"></div>
-
-    <div class="controls">
-        <button id="start-btn" class="btn-start" onclick="initSystem()">システムを起動</button>
-        <button id="capture-btn" class="btn-capture" onclick="captureAndPredict()">📸 写真を撮って判定</button>
-        <button id="reset-btn" class="btn-reset" onclick="resetSystem()">もう一度撮る</button>
+    <div id="webcam-outer">
+        <div id="webcam-container">
+            <div id="scan-line" class="scan-line"></div>
+        </div>
     </div>
-    
+
     <div id="info-area" class="info-card">
         <div id="result-label" class="result-label"></div>
-        <div id="info-desc"></div>
-        <p id="distance-info" style="font-size: 0.9em; color: #28a745; margin-top: 10px;"></p>
+        <img id="result-image" style="display: none;">
+        <div id="info-desc" style="line-height: 1.6; color: #cbd5e1;"></div>
+        <div id="distance-info"></div>
+    </div>
+
+    <div class="controls">
+        <button id="start-btn" class="btn-start" onclick="initSystem()">SYSTEM START</button>
+        <button id="capture-btn" class="btn-capture" style="display: none;" onclick="captureAndPredict()">ANALYSIS (判定)</button>
+        <button id="reset-btn" class="btn-reset" style="display: none;" onclick="resetSystem()">RETRY</button>
     </div>
 
     <script>
         const TARGETS = {
-            "Nintendo": { lat: 35.6586, lon: 139.7454, title: "任天堂スポット", desc: "ここに特別な任天堂情報を表示します。" },
-            "セブンイレブン": { lat: 35.6812, lon: 139.7671, title: "セブンイレブン", desc: "セブンイレブン付近であることを確認しました。" }
-            //"Nintendo": { 
-        //lat: 35.6586, 
-       //lon: 139.7454, 
-        //title: "任天堂スポット", 
-        //desc: "おめでとうございます！特別な壁紙をプレゼントします。",
-        //image: "nintendo-bonus.jpg" // ← ここに画像ファイル名を追加//
-    }
+            "Nintendo": { 
+                lat: 35.6586, lon: 139.7454, 
+                title: "Nintendo Station", 
+                desc: "任天堂の特別なスポットを検知しました。限定コンテンツにアクセス可能です。",
+                image: "nintendo.jpg" 
+            },
+            "セブンイレブン": { 
+                lat: 35.6812, lon: 139.7671, 
+                title: "7-Eleven Point", 
+                desc: "セブンイレブンの看板を認識。近隣店舗のクーポンが利用可能です。",
+                image: "711.jpg"
+            }
         };
 
-        let model, webcam, maxPredictions;
-        let isPaused = false;
+        let model, webcam, isPaused = false;
         let userLat, userLon;
 
-        // モデルの初期読み込み
         async function loadModel() {
             try {
                 const URL = "./";
                 model = await tmImage.load(URL + "model.json", URL + "metadata.json");
-                maxPredictions = model.getTotalClasses();
-                document.getElementById("status").innerText = "準備完了！起動してください。";
+                document.getElementById("status").innerText = "SYSTEM READY - 起動してください";
             } catch (e) {
-                document.getElementById("status").innerText = "エラー: モデルが見つかりません。";
+                document.getElementById("status").innerText = "ERROR: モデルの読み込みに失敗";
             }
         }
 
-        // システム起動（カメラとGPS）
         async function initSystem() {
-            document.getElementById("status").innerText = "位置情報を取得中...";
-            
+            document.getElementById("status").innerText = "GPSを取得中...";
             navigator.geolocation.getCurrentPosition(async (pos) => {
                 userLat = pos.coords.latitude;
                 userLon = pos.coords.longitude;
 
-                // カメラ設定
-                webcam = new tmImage.Webcam(300, 300, false); // facingModeはsetupで指定
-                await webcam.setup({ facingMode: "environment" }); 
+                webcam = new tmImage.Webcam(320, 320, false);
+                await webcam.setup({ facingMode: "environment" });
                 await webcam.play();
                 
-                document.getElementById("webcam-container").innerHTML = "";
                 document.getElementById("webcam-container").appendChild(webcam.canvas);
+                document.getElementById("scan-line").style.display = "block";
                 
                 document.getElementById("start-btn").style.display = "none";
                 document.getElementById("capture-btn").style.display = "block";
-                document.getElementById("status").innerText = "カメラに向けてボタンを押してください。";
+                document.getElementById("status").innerText = "SCANNING...";
                 
                 isPaused = false;
                 window.requestAnimationFrame(loop);
             }, (err) => {
-                alert("位置情報の許可が必要です");
-                document.getElementById("status").innerText = "位置情報エラー。";
+                alert("位置情報を許可してください");
             });
         }
 
-        // ループ（映像の更新のみ）
         async function loop() {
             if (!isPaused) {
                 webcam.update();
@@ -108,73 +256,65 @@
             }
         }
 
-        // 【今回のメイン】写真を撮って判定
         async function captureAndPredict() {
-            isPaused = true; // ループを止める（フリーズ）
-            document.getElementById("status").innerText = "判定中...";
+            isPaused = true;
+            document.getElementById("scan-line").style.display = "none";
+            document.getElementById("status").innerText = "ANALYZING...";
             document.getElementById("capture-btn").style.display = "none";
 
-            // AI判定
             const prediction = await model.predict(webcam.canvas);
-            
-            // 一番確率が高い結果を取得
-            let topPrediction = prediction.reduce((prev, current) => 
-                (prev.probability > current.probability) ? prev : current
-            );
+            let top = prediction.reduce((p, c) => (p.probability > c.probability) ? p : c);
 
-            // 背景クラス、または確率が低い場合
-            if (topPrediction.className === "背景" || topPrediction.probability < 0.8) {
-                document.getElementById("status").innerText = "何も見つかりませんでした。";
-                document.getElementById("reset-btn").style.display = "block";
-                return;
-            }
-
-            const className = topPrediction.className;
-            const target = TARGETS[className];
-
-            if (target) {
-                const dist = calculateDistance(userLat, userLon, target.lat, target.lon);
-                
-                if (dist <= 50) {
-                    showResult(target, dist);
-                    document.getElementById("status").innerText = "判定成功！";
-                } else {
-                    document.getElementById("status").innerText = "対象は合っていますが、場所が遠すぎます。";
-                    document.getElementById("distance-info").innerText = `(現在地から約 ${Math.round(dist)}m)`;
-                    document.getElementById("info-area").style.display = "block";
-                    document.getElementById("result-label").innerText = className;
-                    document.getElementById("info-desc").innerText = "もっと近くで撮影してください。";
+            if (top.className === "背景" || top.probability < 0.8) {
+                document.getElementById("status").innerText = "TARGET NOT FOUND";
+            } else {
+                const target = TARGETS[top.className];
+                if (target) {
+                    const dist = calculateDistance(userLat, userLon, target.lat, target.lon);
+                    if (dist <= 50) {
+                        showResult(target, dist);
+                        document.getElementById("status").innerText = "ANALYSIS COMPLETE";
+                    } else {
+                        document.getElementById("status").innerText = "OUT OF RANGE";
+                        showResult({title: top.className, desc: "場所が遠すぎます。"}, dist, false);
+                    }
                 }
             }
-            
             document.getElementById("reset-btn").style.display = "block";
         }
 
-        // リセット処理
+        function showResult(target, dist, success = true) {
+            const area = document.getElementById("info-area");
+            const img = document.getElementById("result-image");
+            area.style.display = "block";
+            document.getElementById("result-label").innerText = target.title;
+            document.getElementById("info-desc").innerText = target.desc;
+            document.getElementById("distance-info").innerText = `📍 DISTANCE: ${Math.round(dist)}m`;
+            
+            if (success && target.image) {
+                img.src = target.image;
+                img.style.display = "block";
+            } else {
+                img.style.display = "none";
+            }
+            area.scrollIntoView({ behavior: 'smooth' });
+        }
+
         function resetSystem() {
             isPaused = false;
             document.getElementById("info-area").style.display = "none";
             document.getElementById("reset-btn").style.display = "none";
             document.getElementById("capture-btn").style.display = "block";
-            document.getElementById("status").innerText = "スキャンを再開しました。";
+            document.getElementById("scan-line").style.display = "block";
+            document.getElementById("status").innerText = "SCANNING...";
             window.requestAnimationFrame(loop);
-        }
-
-        function showResult(target, dist) {
-            const area = document.getElementById("info-area");
-            area.style.display = "block";
-            document.getElementById("result-label").innerText = target.title;
-            document.getElementById("info-desc").innerText = target.desc;
-            document.getElementById("distance-info").innerText = `✅ 位置確認済み (距離: ${Math.round(dist)}m)`;
         }
 
         function calculateDistance(lat1, lon1, lat2, lon2) {
             const R = 6371000;
             const dLat = (lat2 - lat1) * Math.PI / 180;
             const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         }
 
